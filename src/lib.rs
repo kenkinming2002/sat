@@ -3,6 +3,7 @@
 
 use itertools::Itertools;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Either<L, R> {
     Left(L),
     Right(R),
@@ -24,95 +25,142 @@ impl<L, R> Iterator for Either<L, R>
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     Unit(String),
-    Not(Box<Expr>),
-    And(Vec<Expr>),
-    Or(Vec<Expr>),
+    Negation(Box<Expr>),
+    Conjunction(Vec<Expr>),
+    Disjunction(Vec<Expr>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Literal {
-    ident  : String,
-    negate : bool,
+pub trait Rule {
+    fn apply(&self, expr : Expr) -> Result<Expr, Expr>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Clause {
-    literals : Vec<Literal>,
+pub struct CompositeRule<L, R>(L, R);
+impl<L: Rule, R: Rule> Rule for CompositeRule<L, R> {
+    fn apply(&self, expr : Expr) -> Result<Expr, Expr> {
+        let expr = match self.0.apply(expr) {
+            Ok(expr)  => return Ok(expr),
+            Err(expr) => expr,
+        };
+        let expr = match self.1.apply(expr) {
+            Ok(expr)  => return Ok(expr),
+            Err(expr) => expr,
+        };
+        Err(expr)
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)] pub struct ConjunctiveNormalForm { clauses : Vec<Clause> }
-#[derive(Debug, Clone, PartialEq, Eq)] pub struct DisjunctiveNormalForm { clauses : Vec<Clause> }
+pub struct DefaultRule;
+impl Rule for DefaultRule {
+    fn apply(&self, expr : Expr) -> Result<Expr, Expr> {
+        match expr {
+            Expr::Negation(box Expr::Negation(box expr)) => Ok(expr),
+            Expr::Negation(box Expr::Conjunction(exprs)) => Ok(Expr::disjunction(exprs.into_iter().map(Expr::negation))),
+            Expr::Negation(box Expr::Disjunction(exprs)) => Ok(Expr::conjunction(exprs.into_iter().map(Expr::negation))),
+            Expr::Conjunction(exprs) if exprs.iter().any(|expr| matches!(expr, Expr::Conjunction(_))) => {
+                let exprs = exprs.into_iter().flat_map(|expr| match expr {
+                    Expr::Conjunction(exprs) => Either::Left(exprs.into_iter()),
+                    expr                     => Either::Right(std::iter::once(expr)),
+                });
+                Ok(Expr::conjunction(exprs))
+            },
+            Expr::Disjunction(exprs) if exprs.iter().any(|expr| matches!(expr, Expr::Disjunction(_))) => {
+                let exprs = exprs.into_iter().flat_map(|expr| match expr {
+                    Expr::Disjunction(exprs) => Either::Left(exprs.into_iter()),
+                    expr                     => Either::Right(std::iter::once(expr)),
+                });
+                Ok(Expr::disjunction(exprs))
+            },
+            expr => Err(expr),
+        }
+    }
+}
 
-impl Literal {
-    fn negate(self) -> Self {
-        Self { ident : self.ident, negate : !self.negate }
+pub struct CNFRule;
+impl Rule for CNFRule {
+    fn apply(&self, expr : Expr) -> Result<Expr, Expr> {
+        match expr {
+            Expr::Disjunction(exprs) if exprs.iter().any(|expr| matches!(expr, Expr::Conjunction(_))) => {
+                let conjunctions = exprs.into_iter().map(|expr| match expr {
+                    Expr::Conjunction(exprs) => Either::Left(exprs.into_iter()),
+                    expr                     => Either::Right(std::iter::once(expr)),
+                });
+                let disjunctions = conjunctions.multi_cartesian_product().map(|exprs| Expr::Disjunction(exprs)).collect_vec();
+                Ok(Expr::Conjunction(disjunctions))
+            },
+            expr => Err(expr),
+        }
+    }
+}
+
+pub struct DNFRule;
+impl Rule for DNFRule {
+    fn apply(&self, expr : Expr) -> Result<Expr, Expr> {
+        match expr {
+            Expr::Conjunction(exprs) if exprs.iter().any(|expr| matches!(expr, Expr::Disjunction(_))) => {
+                let disjunctions = exprs.into_iter().map(|expr| match expr {
+                    Expr::Disjunction(exprs) => Either::Left(exprs.into_iter()),
+                    expr                     => Either::Right(std::iter::once(expr)),
+                });
+                let conjunctions = disjunctions.multi_cartesian_product().map(|exprs| Expr::Conjunction(exprs)).collect_vec();
+                Ok(Expr::Disjunction(conjunctions))
+            },
+            expr => Err(expr),
+        }
     }
 }
 
 impl Expr {
     pub fn unit<S: Into<String>>(s : S) -> Self { Self::Unit(s.into()) }
-    pub fn not(expr : Self) -> Self { Self::Not(Box::new(expr)) }
-    pub fn and<I: IntoIterator<Item = Expr>>(exprs : I) -> Self { Self::And(Vec::from_iter(exprs)) }
-    pub fn or <I: IntoIterator<Item = Expr>>(exprs : I) -> Self { Self::Or( Vec::from_iter(exprs)) }
+    pub fn negation(expr : Self) -> Self { Self::Negation(Box::new(expr)) }
+    pub fn conjunction<I: IntoIterator<Item = Expr>>(exprs : I) -> Self { Self::Conjunction(Vec::from_iter(exprs)) }
+    pub fn disjunction<I: IntoIterator<Item = Expr>>(exprs : I) -> Self { Self::Disjunction( Vec::from_iter(exprs)) }
 
-    pub fn simplify(self) -> Self {
-        match self {
-            Expr::Not(box Expr::Not(box expr)) => expr.simplify(),
-            Expr::Not(box Expr::And(exprs)) => Expr::or (exprs.into_iter().map(Expr::not).map(Expr::simplify)).simplify(),
-            Expr::Not(box Expr::Or (exprs)) => Expr::and(exprs.into_iter().map(Expr::not).map(Expr::simplify)).simplify(),
-            Expr::And(exprs) => Expr::and(exprs.into_iter().flat_map(|expr| match expr { Expr::And(exprs) => Either::Left(exprs.into_iter().map(Expr::simplify)), expr => Either::Right(std::iter::once(expr.simplify())), })),
-            Expr::Or (exprs) => Expr::or (exprs.into_iter().flat_map(|expr| match expr { Expr::Or (exprs) => Either::Left(exprs.into_iter().map(Expr::simplify)), expr => Either::Right(std::iter::once(expr.simplify())), })),
-            expr => expr,
+    pub fn try_simplify<R : Rule>(self, rule : &R) -> Result<Self, Self> {
+        let expr = match rule.apply(self) {
+            Ok(expr) => return Ok(expr),
+            Err(expr) => expr,
+        };
+        match expr {
+            Self::Unit(ident) => Err(Self::Unit(ident)),
+            Self::Negation(box expr) => match expr.try_simplify(rule) {
+                Ok(expr)  => Ok(Self::negation(expr)),
+                Err(expr) => Err(Self::negation(expr)),
+            },
+            Self::Conjunction(exprs) => {
+                let exprs = exprs.into_iter().map(|expr| expr.try_simplify(rule)).collect_vec();
+                let ok = exprs.iter().any(|expr| expr.is_ok());
+                let exprs = exprs.into_iter().map(|expr| match expr {
+                    Ok(expr) => expr,
+                    Err(expr) => expr,
+                }).collect_vec();
+                if ok {
+                    Ok(Self::conjunction(exprs))
+                } else {
+                    Err(Self::conjunction(exprs))
+                }
+            },
+            Self::Disjunction(exprs) => {
+                let exprs = exprs.into_iter().map(|expr| expr.try_simplify(rule)).collect_vec();
+                let ok = exprs.iter().any(|expr| expr.is_ok());
+                let exprs = exprs.into_iter().map(|expr| match expr {
+                    Ok(expr) => expr,
+                    Err(expr) => expr,
+                }).collect_vec();
+                if ok {
+                    Ok(Self::disjunction(exprs))
+                } else {
+                    Err(Self::disjunction(exprs))
+                }
+            },
         }
     }
 
-    pub fn to_cnf(&self) -> ConjunctiveNormalForm {
-        match self {
-            Self::Unit(ident) => ConjunctiveNormalForm { clauses : vec![Clause { literals : vec![Literal { ident : ident.clone(), negate : false }] }] },
-            Self::Not(expr) => {
-                let cnf = expr.to_cnf();
-                let literals = cnf.clauses.into_iter().map(|clause| clause.literals.into_iter()); // Iterator of Iterator of Literal
-                let literals = literals.map(|literals| literals.map(Literal::negate));            // Iterator of Iterator of Literal
-                let literals = literals.multi_cartesian_product();
-                ConjunctiveNormalForm { clauses : literals.map(|literals| Clause { literals }).collect_vec() }
-            },
-            Self::And(exprs) => {
-                let cnfs = exprs.into_iter().map(|expr| expr.to_cnf());
-                let clauses = cnfs.flat_map(|cnf| cnf.clauses).collect_vec();
-                ConjunctiveNormalForm { clauses }
-            },
-            Self::Or(exprs) => {
-                let cnfs = exprs.into_iter().map(|expr| expr.to_cnf());
-                let clauses = cnfs.map(|cnf| cnf.clauses);
-                let clauses = clauses.multi_cartesian_product(); // Iterator of Iterator of Clause
-                let clauses = clauses.map(|clauses| Clause { literals : clauses.into_iter().flat_map(|clause| clause.literals).collect_vec() }).collect_vec();
-                ConjunctiveNormalForm { clauses }
-            },
-        }
-    }
-
-    pub fn to_dnf(&self) -> DisjunctiveNormalForm {
-        match self {
-            Self::Unit(ident) => DisjunctiveNormalForm { clauses : vec![Clause { literals : vec![Literal { ident : ident.clone(), negate : false }] }] },
-            Self::Not(expr) => {
-                let dnf = expr.to_dnf();
-                let literals = dnf.clauses.into_iter().map(|clause| clause.literals.into_iter()); // Iterator of Iterator of Literal
-                let literals = literals.map(|literals| literals.map(Literal::negate));            // Iterator of Iterator of Literal
-                let literals = literals.multi_cartesian_product();
-                DisjunctiveNormalForm { clauses : literals.map(|literals| Clause { literals }).collect_vec() }
-            },
-            Self::And(exprs) => {
-                let dnfs = exprs.into_iter().map(|expr| expr.to_dnf());
-                let clauses = dnfs.map(|dnf| dnf.clauses);
-                let clauses = clauses.multi_cartesian_product(); // Iterator of Iterator of Clause
-                let clauses = clauses.map(|clauses| Clause { literals : clauses.into_iter().flat_map(|clause| clause.literals).collect_vec() }).collect_vec();
-                DisjunctiveNormalForm { clauses }
-            },
-            Self::Or(exprs) => {
-                let dnfs = exprs.into_iter().map(|expr| expr.to_dnf());
-                let clauses = dnfs.flat_map(|dnf| dnf.clauses).collect_vec();
-                DisjunctiveNormalForm { clauses }
-            },
+    pub fn simplify<R : Rule>(mut self, rule : &R) -> Self {
+        loop {
+            match self.try_simplify(rule) {
+                Ok(expr)  => { self = expr; continue }
+                Err(expr) => { self = expr; break self }
+            }
         }
     }
 }
@@ -127,35 +175,47 @@ mod tests {
         let b = Expr::unit("b");
         let c = Expr::unit("c");
         let d = Expr::unit("d");
-        let lhs = Expr::or([
-            Expr::and([
+        let expr = Expr::disjunction([
+            Expr::conjunction([
                 a.clone(),
-                Expr::and([
-                    Expr::not(Expr::not(b.clone())),
+                Expr::conjunction([
+                    Expr::negation(Expr::negation(b.clone())),
                     c.clone()
                 ]),
             ]),
-            Expr::not(Expr::not(Expr::not(d.clone()))),
-        ]).simplify();
+            Expr::negation(Expr::negation(Expr::negation(d.clone()))),
+        ]);
 
         let a = Expr::unit("a");
         let b = Expr::unit("b");
         let c = Expr::unit("c");
         let d = Expr::unit("d");
-        let rhs = Expr::or([
-            Expr::and([a, b, c]),
-            Expr::not(d)]
+        let simplified = Expr::disjunction([
+            Expr::conjunction([a, b, c]),
+            Expr::negation(d)]
         );
 
-        assert_eq!(lhs.simplify(), rhs);
-        assert_eq!(rhs.to_cnf(), ConjunctiveNormalForm { clauses : vec![
-            Clause { literals : vec![Literal { ident : "a".into(), negate : false }, Literal { ident : "d".into(), negate : true }] },
-            Clause { literals : vec![Literal { ident : "b".into(), negate : false }, Literal { ident : "d".into(), negate : true }] },
-            Clause { literals : vec![Literal { ident : "c".into(), negate : false }, Literal { ident : "d".into(), negate : true }] },
-        ]});
-        assert_eq!(rhs.to_dnf(), DisjunctiveNormalForm { clauses : vec![
-            Clause { literals : vec![Literal { ident : "a".into(), negate : false }, Literal { ident : "b".into(), negate : false }, Literal { ident : "c".into(), negate : false }] },
-            Clause { literals : vec![Literal { ident : "d".into(), negate : true }] },
-        ]});
+        let a = Expr::unit("a");
+        let b = Expr::unit("b");
+        let c = Expr::unit("c");
+        let d = Expr::unit("d");
+        let cnf = Expr::conjunction([
+            Expr::disjunction([a, Expr::negation(d.clone())]),
+            Expr::disjunction([b, Expr::negation(d.clone())]),
+            Expr::disjunction([c, Expr::negation(d.clone())]),
+        ]);
+
+        let a = Expr::unit("a");
+        let b = Expr::unit("b");
+        let c = Expr::unit("c");
+        let d = Expr::unit("d");
+        let dnf = Expr::disjunction([
+            Expr::conjunction([a, b, c]),
+            Expr::negation(d)]
+        );
+
+        assert_eq!(expr.clone().simplify(&DefaultRule), simplified);
+        assert_eq!(expr.clone().simplify(&CompositeRule(DefaultRule, CNFRule)), cnf);
+        assert_eq!(expr.clone().simplify(&CompositeRule(DefaultRule, DNFRule)), dnf);
     }
 }
