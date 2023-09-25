@@ -27,8 +27,6 @@ impl Rule for DefaultRule {
     fn apply(&self, expr : Expr) -> Result<Expr, Expr> {
         match expr {
             Expr::Negation(box Expr::Negation(box expr)) => Ok(expr),
-            Expr::Negation(box Expr::Conjunction(exprs)) => Ok(Expr::disjunction(exprs.into_iter().map(Expr::negation))),
-            Expr::Negation(box Expr::Disjunction(exprs)) => Ok(Expr::conjunction(exprs.into_iter().map(Expr::negation))),
             Expr::Conjunction(exprs) if exprs.iter().any(|expr| matches!(expr, Expr::Conjunction(_))) => {
                 let exprs = exprs.into_iter().flat_map(|expr| match expr {
                     Expr::Conjunction(exprs) => Either::Left(exprs.into_iter()),
@@ -43,6 +41,17 @@ impl Rule for DefaultRule {
                 });
                 Ok(Expr::disjunction(exprs))
             },
+            expr => Err(expr),
+        }
+    }
+}
+
+pub struct NNFRule;
+impl Rule for NNFRule {
+    fn apply(&self, expr : Expr) -> Result<Expr, Expr> {
+        match expr {
+            Expr::Negation(box Expr::Conjunction(exprs)) => Ok(Expr::disjunction(exprs.into_iter().map(Expr::negation))),
+            Expr::Negation(box Expr::Disjunction(exprs)) => Ok(Expr::conjunction(exprs.into_iter().map(Expr::negation))),
             expr => Err(expr),
         }
     }

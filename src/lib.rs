@@ -12,6 +12,7 @@ mod tests {
     use expr::Expr;
     use rule::CompositeRule;
     use rule::DefaultRule;
+    use rule::NNFRule;
     use rule::CNFRule;
     use rule::DNFRule;
 
@@ -60,8 +61,8 @@ mod tests {
             Expr::negation(d)]
         );
 
-        assert_eq!(expr.clone().simplify(&DefaultRule), simplified);
-        assert_eq!(expr.clone().simplify(&CompositeRule(DefaultRule, CNFRule)), cnf);
-        assert_eq!(expr.clone().simplify(&CompositeRule(DefaultRule, DNFRule)), dnf);
+        assert_eq!(expr.clone().simplify(&CompositeRule(DefaultRule, NNFRule)), simplified);
+        assert_eq!(expr.clone().simplify(&CompositeRule(CompositeRule(DefaultRule, NNFRule), CNFRule)), cnf);
+        assert_eq!(expr.clone().simplify(&CompositeRule(CompositeRule(DefaultRule, NNFRule), DNFRule)), dnf);
     }
 }
