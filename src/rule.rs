@@ -3,13 +3,13 @@ use crate::either::Either;
 
 use itertools::Itertools;
 
-pub trait Rule {
-    fn apply(&self, expr : Expr) -> Result<Expr, Expr>;
+pub trait Rule<T> {
+    fn apply(&self, expr : Expr<T>) -> Result<Expr<T>, Expr<T>>;
 }
 
 pub struct CompositeRule<L, R>(pub L, pub R);
-impl<L: Rule, R: Rule> Rule for CompositeRule<L, R> {
-    fn apply(&self, expr : Expr) -> Result<Expr, Expr> {
+impl<T, L: Rule<T>, R: Rule<T>> Rule<T> for CompositeRule<L, R> {
+    fn apply(&self, expr : Expr<T>) -> Result<Expr<T>, Expr<T>> {
         let expr = match self.0.apply(expr) {
             Ok(expr)  => return Ok(expr),
             Err(expr) => expr,
@@ -23,8 +23,8 @@ impl<L: Rule, R: Rule> Rule for CompositeRule<L, R> {
 }
 
 pub struct DefaultRule;
-impl Rule for DefaultRule {
-    fn apply(&self, expr : Expr) -> Result<Expr, Expr> {
+impl<T> Rule<T> for DefaultRule {
+    fn apply(&self, expr : Expr<T>) -> Result<Expr<T>, Expr<T>> {
         match expr {
             Expr::Negation(box Expr::Negation(box expr)) => Ok(expr),
             Expr::Conjunction(exprs) if exprs.iter().any(|expr| matches!(expr, Expr::Conjunction(_))) => {
@@ -47,8 +47,8 @@ impl Rule for DefaultRule {
 }
 
 pub struct NNFRule;
-impl Rule for NNFRule {
-    fn apply(&self, expr : Expr) -> Result<Expr, Expr> {
+impl<T> Rule<T> for NNFRule {
+    fn apply(&self, expr : Expr<T>) -> Result<Expr<T>, Expr<T>> {
         match expr {
             Expr::Negation(box Expr::Conjunction(exprs)) => Ok(Expr::disjunction(exprs.into_iter().map(Expr::negation))),
             Expr::Negation(box Expr::Disjunction(exprs)) => Ok(Expr::conjunction(exprs.into_iter().map(Expr::negation))),
@@ -58,8 +58,8 @@ impl Rule for NNFRule {
 }
 
 pub struct CNFRule;
-impl Rule for CNFRule {
-    fn apply(&self, expr : Expr) -> Result<Expr, Expr> {
+impl<T: Clone> Rule<T> for CNFRule {
+    fn apply(&self, expr : Expr<T>) -> Result<Expr<T>, Expr<T>> {
         match expr {
             Expr::Disjunction(exprs) if exprs.iter().any(|expr| matches!(expr, Expr::Conjunction(_))) => {
                 let conjunctions = exprs.into_iter().map(|expr| match expr {
@@ -75,8 +75,8 @@ impl Rule for CNFRule {
 }
 
 pub struct DNFRule;
-impl Rule for DNFRule {
-    fn apply(&self, expr : Expr) -> Result<Expr, Expr> {
+impl<T: Clone> Rule<T> for DNFRule {
+    fn apply(&self, expr : Expr<T>) -> Result<Expr<T>, Expr<T>> {
         match expr {
             Expr::Conjunction(exprs) if exprs.iter().any(|expr| matches!(expr, Expr::Disjunction(_))) => {
                 let disjunctions = exprs.into_iter().map(|expr| match expr {

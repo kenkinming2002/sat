@@ -3,21 +3,21 @@ use crate::rule::Rule;
 use itertools::Itertools;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Expr {
+pub enum Expr<T> {
+    Variable(T),
     Constant(bool),
-    Variable(String),
-    Negation(Box<Expr>),
-    Conjunction(Vec<Expr>),
-    Disjunction(Vec<Expr>),
+    Negation(Box<Self>),
+    Conjunction(Vec<Self>),
+    Disjunction(Vec<Self>),
 }
 
-impl Expr {
-    pub fn unit<S: Into<String>>(s : S) -> Self { Self::Variable(s.into()) }
+impl<T> Expr<T> {
+    pub fn variable(name : T) -> Self { Self::Variable(name) }
     pub fn negation(expr : Self) -> Self { Self::Negation(Box::new(expr)) }
-    pub fn conjunction<I: IntoIterator<Item = Expr>>(exprs : I) -> Self { Self::Conjunction(Vec::from_iter(exprs)) }
-    pub fn disjunction<I: IntoIterator<Item = Expr>>(exprs : I) -> Self { Self::Disjunction( Vec::from_iter(exprs)) }
+    pub fn conjunction<I: IntoIterator<Item = Self>>(exprs : I) -> Self { Self::Conjunction(Vec::from_iter(exprs)) }
+    pub fn disjunction<I: IntoIterator<Item = Self>>(exprs : I) -> Self { Self::Disjunction( Vec::from_iter(exprs)) }
 
-    pub fn try_simplify<R : Rule>(self, rule : &R) -> Result<Self, Self> {
+    pub fn try_simplify<R : Rule<T>>(self, rule : &R) -> Result<Self, Self> {
         let expr = match rule.apply(self) {
             Ok(expr) => return Ok(expr),
             Err(expr) => expr,
@@ -58,7 +58,7 @@ impl Expr {
         }
     }
 
-    pub fn simplify<R : Rule>(mut self, rule : &R) -> Self {
+    pub fn simplify<R : Rule<T>>(mut self, rule : &R) -> Self {
         loop {
             match self.try_simplify(rule) {
                 Ok(expr)  => { self = expr; continue }

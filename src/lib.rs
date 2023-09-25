@@ -18,10 +18,10 @@ mod tests {
 
     #[test]
     fn test_expr() {
-        let a = Expr::unit("a");
-        let b = Expr::unit("b");
-        let c = Expr::unit("c");
-        let d = Expr::unit("d");
+        let a = Expr::variable("a");
+        let b = Expr::variable("b");
+        let c = Expr::variable("c");
+        let d = Expr::variable("d");
         let expr = Expr::disjunction([
             Expr::conjunction([
                 a.clone(),
@@ -33,29 +33,29 @@ mod tests {
             Expr::negation(Expr::negation(Expr::negation(d.clone()))),
         ]);
 
-        let a = Expr::unit("a");
-        let b = Expr::unit("b");
-        let c = Expr::unit("c");
-        let d = Expr::unit("d");
+        let a = Expr::variable("a");
+        let b = Expr::variable("b");
+        let c = Expr::variable("c");
+        let d = Expr::variable("d");
         let simplified = Expr::disjunction([
             Expr::conjunction([a, b, c]),
             Expr::negation(d)]
         );
 
-        let a = Expr::unit("a");
-        let b = Expr::unit("b");
-        let c = Expr::unit("c");
-        let d = Expr::unit("d");
+        let a = Expr::variable("a");
+        let b = Expr::variable("b");
+        let c = Expr::variable("c");
+        let d = Expr::variable("d");
         let cnf = Expr::conjunction([
             Expr::disjunction([a, Expr::negation(d.clone())]),
             Expr::disjunction([b, Expr::negation(d.clone())]),
             Expr::disjunction([c, Expr::negation(d.clone())]),
         ]);
 
-        let a = Expr::unit("a");
-        let b = Expr::unit("b");
-        let c = Expr::unit("c");
-        let d = Expr::unit("d");
+        let a = Expr::variable("a");
+        let b = Expr::variable("b");
+        let c = Expr::variable("c");
+        let d = Expr::variable("d");
         let dnf = Expr::disjunction([
             Expr::conjunction([a, b, c]),
             Expr::negation(d)]
