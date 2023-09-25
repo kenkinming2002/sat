@@ -4,14 +4,15 @@ use itertools::Itertools;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
-    Unit(String),
+    Constant(bool),
+    Variable(String),
     Negation(Box<Expr>),
     Conjunction(Vec<Expr>),
     Disjunction(Vec<Expr>),
 }
 
 impl Expr {
-    pub fn unit<S: Into<String>>(s : S) -> Self { Self::Unit(s.into()) }
+    pub fn unit<S: Into<String>>(s : S) -> Self { Self::Variable(s.into()) }
     pub fn negation(expr : Self) -> Self { Self::Negation(Box::new(expr)) }
     pub fn conjunction<I: IntoIterator<Item = Expr>>(exprs : I) -> Self { Self::Conjunction(Vec::from_iter(exprs)) }
     pub fn disjunction<I: IntoIterator<Item = Expr>>(exprs : I) -> Self { Self::Disjunction( Vec::from_iter(exprs)) }
@@ -22,7 +23,8 @@ impl Expr {
             Err(expr) => expr,
         };
         match expr {
-            Self::Unit(ident) => Err(Self::Unit(ident)),
+            Self::Constant(value) => Err(Self::Constant(value)),
+            Self::Variable(ident) => Err(Self::Variable(ident)),
             Self::Negation(box expr) => match expr.try_simplify(rule) {
                 Ok(expr)  => Ok(Self::negation(expr)),
                 Err(expr) => Err(Self::negation(expr)),
